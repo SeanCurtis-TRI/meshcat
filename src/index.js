@@ -140,7 +140,7 @@ function handle_special_geometry(geom) {
             return result;
         } else if (geom.format == "stl") {
             let loader = new STLLoader();
-            let loaded_geom = loader.parse(geom.data.buffer);
+            let loaded_geom = loader.parse(geom.data);
             loaded_geom.uuid = geom.uuid;
             return loaded_geom;
         } else {
