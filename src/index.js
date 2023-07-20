@@ -756,6 +756,15 @@ function env_texture(top_color, bottom_color) {
     return texture;
 }
 
+function load_env_texture(path) {
+    let texture = new THREE.TextureLoader().load( path );
+    if (texture != null) {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+    }
+    return texture;
+}
+
 
 class Viewer {
     constructor(dom_element, animate, renderer) {
@@ -802,18 +811,38 @@ class Viewer {
 
     hide_background() {
         this.scene.background = null;
-        this.scene.environment = env_texture([255, 255, 255], [255, 255, 255]);
+        let bg = this.scene_tree.find(["Background"]).object;
+        if (bg.loaded_environment == null || !bg.gradient_background) {
+            this.scene.environment = env_texture([255, 255, 255], [255, 255, 255]);
+        }
         this.set_dirty();
     }
 
     show_background() {
-        var top_color = this.scene_tree.find(["Background"]).object.top_color;
-        var bottom_color =
-            this.scene_tree.find(["Background"]).object.bottom_color;
+        // TODO: Consider separating Background and Environment. Then background
+        //       should get a *visible* property that says "use environment".
+        //       Ideally, disabled if no environment defined. And the environment
+        //       visibility can be uniquely defined.
+        let bg = this.scene_tree.find(["Background"]).object;
+        let env_image = null;
+        if (bg.environment_map != null) {
+            if (bg.loaded_environment == null ||
+                bg.loaded_environment.path != bg.environment_map) {
+              bg.loaded_environment = { "path": bg.environment,
+                                        "image": load_env_texture(bg.environment_map)};
+            }
+            env_image = bg.loaded_environment.image;
+        }
+        var top_color = bg.top_color;
+        var bottom_color = bg.bottom_color;
         // TODO(SeanCurtis-TRI): Rather than generating this texture every time, create it
         // and save it.
-        this.scene.background = env_texture(top_color, bottom_color);
-        this.scene.environment = this.scene.background;
+        let bg_image = bg.gradient_background == true || env_image == null ?
+                       env_texture(top_color, bottom_color) :
+                       env_image;
+
+        this.scene.background = bg_image;
+        this.scene.environment = env_image == null ? bg_image : env_image;
         this.set_dirty();
     }
 
@@ -1085,6 +1114,7 @@ class Viewer {
     set_property(path, property, value) {
         this.scene_tree.find(path).set_property(property, value);
         if (path[0] === "Background") {
+            console.info("Setting background property: ", property);
             // The background is not an Object3d, so needs a little help.
             this.scene_tree.find(path).on_update();
         }
