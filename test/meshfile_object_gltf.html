@@ -79,7 +79,7 @@ let gltf_contents = `
 				"baseColorTexture":{
 					"index":0
 				},
-				"metallicFactor":0,
+				"metallicFactor":1,
 				"roughnessFactor":0.06363635510206223
 			}
 		},
@@ -310,6 +310,7 @@ let gltf_contents = `
 			property: "castShadow",
 			value: true
 		});
+		viewer.set_property(['Background'], "environment", "env_1k_indoor_tonemapped.jpg");
         </script>
 
 

@@ -756,6 +756,15 @@ function env_texture(top_color, bottom_color) {
     return texture;
 }
 
+function load_env_texture(path) {
+    let texture = new THREE.TextureLoader().load( path );
+    if (texture != null) {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+    }
+    return texture;
+}
+
 
 class Viewer {
     constructor(dom_element, animate, renderer) {
@@ -807,13 +816,24 @@ class Viewer {
     }
 
     show_background() {
-        var top_color = this.scene_tree.find(["Background"]).object.top_color;
-        var bottom_color =
-            this.scene_tree.find(["Background"]).object.bottom_color;
+        let bg = this.scene_tree.find(["Background"]).object;
+        let env_image = null;
+        if (bg.environment != null) {
+            console.info("Bg environment is *not* null!");
+            if (bg.loaded == null || bg.loaded.path != bg.environment) {
+                bg.loaded = { "path": bg.environment,
+                              "image": load_env_texture(bg.environment)};
+            }
+            env_image = bg.loaded.image;
+        }
+        var top_color = bg.top_color;
+        var bottom_color = bg.bottom_color;
         // TODO(SeanCurtis-TRI): Rather than generating this texture every time, create it
         // and save it.
-        this.scene.background = env_texture(top_color, bottom_color);
-        this.scene.environment = this.scene.background;
+        let bg_image = env_texture(top_color, bottom_color);
+
+        this.scene.background = bg_image;
+        this.scene.environment = env_image == null ? bg_image : env_image;
         this.set_dirty();
     }
 
@@ -1085,6 +1105,7 @@ class Viewer {
     set_property(path, property, value) {
         this.scene_tree.find(path).set_property(property, value);
         if (path[0] === "Background") {
+            console.info("Setting background property: ", property);
             // The background is not an Object3d, so needs a little help.
             this.scene_tree.find(path).on_update();
         }
