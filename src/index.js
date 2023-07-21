@@ -6,6 +6,7 @@ import {OBJLoader2, MtlObjBridge} from 'wwobjloader2'
 import {ColladaLoader} from 'three/examples/jsm/loaders/ColladaLoader.js';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {MTLLoader} from 'three/examples/jsm/loaders/MTLLoader.js';
+import {RGBELoader} from 'three/examples/jsm/loaders/RGBELoader.js';
 import {STLLoader} from 'three/examples/jsm/loaders/STLLoader.js';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js';
 require('ccapture.js');
@@ -756,10 +757,33 @@ function env_texture(top_color, bottom_color) {
     return texture;
 }
 
-function load_env_texture(path) {
-    let texture = new THREE.TextureLoader().load( path );
+// Attempts to instantiate an environment texture from the given image url.
+function load_env_texture(image_url) {
+    let loader = null;
+    let colorSpace = null;
+    if (image_url.startsWith('data:')) {
+        let type = image_url.substring(5, image_url.indexOf(";"));
+        if (type == "image/hdr") {
+            console.info("Loading data hdr!");
+            loader = new THREE.RGBELoader();
+        }
+    } else {
+        if (image_url.toLowerCase().endsWith(".hdr")) {
+            console.info("Loading file hdr!");
+            loader = new THREE.RGBELoader();
+        }
+    }
+    if (loader == null) {
+        console.info("Loading using texture loader\n");
+        loader = new THREE.TextureLoader();
+        colorSpace = THREE.SRGBColorSpace;
+    }
+
+    let texture = loader.load( image_url );
     if (texture != null) {
-        texture.colorSpace = THREE.SRGBColorSpace;
+        if (colorSpace != null) {
+            texture.colorSpace = colorSpace;
+        }
         texture.mapping = THREE.EquirectangularReflectionMapping;
     }
     return texture;
