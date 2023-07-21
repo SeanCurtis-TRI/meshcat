@@ -790,6 +790,14 @@ function env_texture(top_color, bottom_color) {
     return texture;
 }
 
+// Given a simple 8-bit RGBA texture (with values between 0 and 255, create a
+// HalfFloat texture such that the normalized channel values [0, 255] => [0, 1])
+// get multiplied by `scale`.
+function scale_texture(in_texture, scale) {
+    console.info(in_texture);
+    return in_texture;
+}
+
 function load_env_texture(path) {
     let texture = new THREE.TextureLoader().load( path );
     if (texture != null) {
@@ -875,7 +883,7 @@ class Viewer {
                 }
                 env.loaded.raw_texture = load_env_texture(env.environment_map);
                 // TODO: Scale the raw_texture by intensity and store it.
-                env.loaded.texture = env.loaded.raw_texture;
+                env.loaded.texture = scale_texture(env.loaded.raw_texture, env.intensity);
                 env.loaded.intensity = env.intensity;
                 env.loaded.path = env.environment_map;
                 this.scene.environment = env.get_texture();
@@ -888,6 +896,8 @@ class Viewer {
                 if (env.environment_map != null) {
                     // Intensity doesn't matter if there's no map.
                     if (env.intensity != env.loaded.intensity) {
+                        env.loaded.texture = scale_texture(env.loaded.raw_texture, env.intensity);
+                        env.loaded.intensity = env.intensity;
                         map_changed = true;
                     }
                 }
