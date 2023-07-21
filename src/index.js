@@ -284,6 +284,31 @@ class ExtensibleObjectLoader extends THREE.ObjectLoader {
     }
 }
 
+class Environment extends THREE.Object3D {
+	constructor() {
+		super();
+		this.isEnvironment = true;
+        this.intensity = 1.0;
+		this.type = 'Environment';
+        // The map property that gets set externally.
+        this.environment_map = null;
+        // The state of what's actually currently loaded.
+        this.loaded = {
+            "raw_texture": null,
+            "intensity": 1,
+            "texture": null,
+            "path": "",
+        };
+	}
+
+    has_texture() {
+        return this.loaded.texture != null;
+    }
+
+    get_texture() {
+        return this.loaded.texture;
+    }
+}
 
 class SceneNode {
     constructor(object, folder, on_update) {
@@ -333,19 +358,22 @@ class SceneNode {
         if (this.vis_controller !== undefined) {
             this.folder.domElement.removeChild(this.vis_controller.domElement);
         }
-        this.vis_controller = new dat.controllers.BooleanController(this.object, "visible");
-        this.vis_controller.onChange(() => this.on_update());
-        this.folder.domElement.prepend(this.vis_controller.domElement);
-        this.vis_controller.domElement.style.height = "0";
-        this.vis_controller.domElement.style.float = "right";
-        this.vis_controller.domElement.classList.add("meshcat-visibility-checkbox");
-        this.vis_controller.domElement.children[0].addEventListener("change", (evt) => {
-            if (evt.target.checked) {
-                this.folder.domElement.classList.remove("meshcat-hidden-scene-element");
-            } else {
-                this.folder.domElement.classList.add("meshcat-hidden-scene-element");
-            }
-        });
+        if (!this.object.isEnvironment || this.object.name === "Environment") {
+            // Environment visibility cannot be independently toggled.
+            this.vis_controller = new dat.controllers.BooleanController(this.object, "visible");
+            this.vis_controller.onChange(() => this.on_update());
+            this.folder.domElement.prepend(this.vis_controller.domElement);
+            this.vis_controller.domElement.style.height = "0";
+            this.vis_controller.domElement.style.float = "right";
+            this.vis_controller.domElement.classList.add("meshcat-visibility-checkbox");
+            this.vis_controller.domElement.children[0].addEventListener("change", (evt) => {
+                if (evt.target.checked) {
+                    this.folder.domElement.classList.remove("meshcat-hidden-scene-element");
+                } else {
+                    this.folder.domElement.classList.add("meshcat-hidden-scene-element");
+                }
+            });
+        }
         if (this.object.isLight) {
             let intensity_controller = this.folder.add(this.object, "intensity").min(0).step(0.01);
             intensity_controller.onChange(() => this.on_update());
@@ -376,6 +404,11 @@ class SceneNode {
                 this.on_update()
             });
             this.controllers.push(controller);
+        }
+        if (this.object.isEnvironment) {
+            let intensity_controller = this.folder.add(this.object, "intensity").min(0).step(0.1).max(100);
+            intensity_controller.onChange(() => this.on_update());
+            this.controllers.push(intensity_controller);
         }
     }
 
@@ -726,6 +759,7 @@ class Animator {
 // empirically, it is obvious. Reduce the width by even one pixel
 // and any metallic surface reflects a black void.
 function env_texture(top_color, bottom_color) {
+    if (top_color == null || bottom_color == null) return null;
     let width = 64;
     let height = 2;
     let size = width * height;
@@ -809,41 +843,77 @@ class Viewer {
       }
     }
 
-    hide_background() {
-        this.scene.background = null;
+    update_background_environment(changed_data) {
+        let env = this.scene_tree.find(["Environment", "<object>"]).object;
         let bg = this.scene_tree.find(["Background"]).object;
-        if (bg.loaded_environment == null || !bg.gradient_background) {
-            this.scene.environment = env_texture([255, 255, 255], [255, 255, 255]);
+        let has_user_env = env.environment_map !== null;
+
+        if (changed_data.source === "Background") {
+            if (changed_data.property == "visibility") {
+                this.scene.background =
+                    !bg.visible ?
+                        null :
+                        (env.has_texture() ?
+                            env.get_texture() :
+                            env_texture(bg.top_color, bg.bottom_color));
+                if (!has_user_env) {
+                    // If there's no texture, background visibility affects
+                    // environment.
+                    this.scene.environment = bg.visible ? this.scene.background : env_texture([255, 255, 255], [255, 255, 255]);
+                }             
+            } if (!has_user_env) {
+                // Other changes only require a new gradient if we aren't using
+                // the environment map.
+                this.scene.background = bg.visible ? env_texture(bg.top_color, bg.bottom_color) : null;  
+                this.scene.environment = bg.visible ? this.scene.background : env_texture([255, 255, 255], [255, 255, 255]);                
+            }
+        } else if (changed_data.source === "Environment") {
+            if (changed_data.property === "environment_map") {
+                if (env.loaded.path === env.environment_map) {
+                    // No real change.
+                    return;   
+                }
+                env.loaded.raw_texture = load_env_texture(env.environment_map);
+                // TODO: Scale the raw_texture by intensity and store it.
+                env.loaded.texture = env.loaded.raw_texture;
+                env.loaded.intensity = env.intensity;
+                env.loaded.path = env.environment_map;
+                this.scene.environment = env.get_texture();
+                if (bg.visible) {
+                    this.scene.background = env.get_texture();
+                }
+            } else {
+                // We either changed visibility or intensity.
+                let map_changed = false;
+                if (env.environment_map != null) {
+                    // Intensity doesn't matter if there's no map.
+                    if (env.intensity != env.loaded.intensity) {
+                        map_changed = true;
+                    }
+                }
+                if (env.has_texture()) {
+                    if (map_changed && bg.visible) {
+                        this.scene.background = env.get_texture();
+                    }
+                    this.scene.environment = env.get_texture();
+                } else {
+                    this.scene.environment = bg.visible ? this.scene.background : env_texture([255, 255, 255], [255, 255, 255]);
+                }
+            }
+        } else {
+            console.error("update background environment called without data");
         }
         this.set_dirty();
     }
 
-    show_background() {
-        // TODO: Consider separating Background and Environment. Then background
-        //       should get a *visible* property that says "use environment".
-        //       Ideally, disabled if no environment defined. And the environment
-        //       visibility can be uniquely defined.
-        let bg = this.scene_tree.find(["Background"]).object;
-        let env_image = null;
-        if (bg.environment_map != null) {
-            if (bg.loaded_environment == null ||
-                bg.loaded_environment.path != bg.environment_map) {
-              bg.loaded_environment = { "path": bg.environment,
-                                        "image": load_env_texture(bg.environment_map)};
-            }
-            env_image = bg.loaded_environment.image;
-        }
-        var top_color = bg.top_color;
-        var bottom_color = bg.bottom_color;
+    init_background_environment() {
+        let bg = this.scene_tree.find(["Background"]);
+        var top_color = bg.object.top_color;
+        var bottom_color = bg.object.bottom_color;
         // TODO(SeanCurtis-TRI): Rather than generating this texture every time, create it
         // and save it.
-        let bg_image = bg.gradient_background == true || env_image == null ?
-                       env_texture(top_color, bottom_color) :
-                       env_image;
-
-        this.scene.background = bg_image;
-        this.scene.environment = env_image == null ? bg_image : env_image;
-        this.set_dirty();
+        this.scene.background = env_texture(top_color, bottom_color);
+        this.scene.environment = this.scene.background;
     }
 
     set_dirty() {
@@ -924,6 +994,16 @@ class Viewer {
         this.set_object(["Axes"], axes);
     }
 
+    strip_visibility_control(node) {
+        for (let c of node.controllers) {
+            node.folder.remove(c);
+        }
+        node.controllers = [];
+        if (node.vis_controller !== undefined) {
+            node.folder.domElement.removeChild(node.vis_controller.domElement);
+        }
+    }
+
     create_scene_tree() {
         if (this.gui) {
             this.gui.destroy();
@@ -945,17 +1025,22 @@ class Viewer {
         this.animator = new Animator(this);
         this.gui.close();
 
+        this.set_object(["Environment"], new Environment());
+        this.strip_visibility_control(this.scene_tree.find(["Environment"]));
+        
         this.set_property(["Background"],
             "top_color", [135/255, 206/255, 250/255]); // lightskyblue
         this.set_property(["Background"],
             "bottom_color", [25/255, 25/255, 112/255]); // midnightblue
         this.scene_tree.find(["Background"]).on_update = () => {
-            if (this.scene_tree.find(["Background"]).object.visible)
-                this.show_background();
-            else
-                this.hide_background();
+            this.update_background_environment({"source": "Background", "property": "visibility"});
         };
-        this.show_background();
+        // We don't toggle Environment visibility independently.
+        let env_object = this.scene_tree.find(["Environment", "<object>"]);
+        env_object.on_update = () => {
+            this.update_background_environment({"source": "Environment", "property": "object"});
+        };
+        this.init_background_environment();
     }
 
     set_3d_pane_size(w, h) {
@@ -1113,10 +1198,9 @@ class Viewer {
 
     set_property(path, property, value) {
         this.scene_tree.find(path).set_property(property, value);
-        if (path[0] === "Background") {
-            console.info("Setting background property: ", property);
-            // The background is not an Object3d, so needs a little help.
-            this.scene_tree.find(path).on_update();
+        if (path[0] === "Background" || path[0] === "Environment") {
+            // Background and environment need a little help because of their non-Object3d aspects.
+            this.update_background_environment({"source": path[0], "property": property });
         }
         // if (path[0] === "Cameras") {
         //     this.camera.updateProjectionMatrix();
