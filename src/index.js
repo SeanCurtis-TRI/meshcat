@@ -403,6 +403,117 @@ class Background extends THREE.Object3D {
     }
 }
 
+
+class MySpotLightHelper extends THREE.Object3D {
+	constructor( light, color ) {
+		super();
+		this.light = light;
+
+		this.color = color;
+
+		this.type = 'SpotLightHelper';
+
+		const geometry = new THREE.BufferGeometry();
+
+        // It points in the +z direction.
+		const positions = [
+			0, 0, 0, 	 0,  0, 1,
+			0, 0, 0, 	 1,  0, 1,
+			0, 0, 0,	-1,  0, 1,
+			0, 0, 0, 	 0,  1, 1,
+			0, 0, 0, 	 0, -1, 1
+		];
+
+		for ( let i = 0, j = 1, l = 32; i < l; ++i, ++j) {
+
+			const p1 = ( i / l ) * Math.PI * 2;
+			const p2 = ( j / l ) * Math.PI * 2;
+
+			positions.push(
+				Math.cos( p1 ), Math.sin( p1 ), 1,
+				Math.cos( p2 ), Math.sin( p2 ), 1
+			);
+
+		}
+
+		geometry.setAttribute( 'position', new THREE.Float32BufferAttribute( positions, 3 ) );
+
+		const material = new THREE.LineBasicMaterial( { fog: false, toneMapped: false } );
+
+		this.cone = new THREE.LineSegments( geometry, material );
+		this.add( this.cone );
+
+		this.update();
+
+	}
+
+	dispose() {
+
+		this.cone.geometry.dispose();
+		this.cone.material.dispose();
+
+	}
+
+	update() {
+
+		this.light.updateWorldMatrix( true, true );
+
+		const coneLength = this.light.distance ? this.light.distance : 50;
+        console.info("coneLength:", coneLength);
+		const coneWidth = coneLength * Math.tan( this.light.angle );
+
+		this.cone.scale.set( coneWidth, coneWidth, coneLength );
+
+        // The cone is co-located with the light, so we just need it to look
+        // at the light's target.
+        var p_WT = new THREE.Vector3();
+        p_WT.setFromMatrixPosition(this.light.target.matrixWorld);
+		this.cone.lookAt( p_WT );
+
+		if ( this.color !== undefined ) {
+			this.cone.material.color.set( this.color );
+		} else {
+			this.cone.material.color.copy( this.light.color );
+		}
+
+	}
+
+}
+
+class MyPointLightHelper extends THREE.Mesh {
+
+	constructor( light, sphereSize, color ) {
+		const geometry = new THREE.SphereGeometry( sphereSize, 4, 2 );
+		const material = new THREE.MeshBasicMaterial( { wireframe: true,
+                                                        fog: false,
+                                                        toneMapped: false } );
+
+		super( geometry, material );
+
+		this.light = light;
+		this.color = color;
+		this.type = 'PointLightHelper';
+		this.update();
+	}
+
+	dispose() {
+		this.geometry.dispose();
+		this.material.dispose();
+	}
+
+    update() {
+        // NOTE: This isn't necessarily changing the color!
+		if ( this.color !== undefined ) {
+            console.info("   helper color:", this.color);
+			this.material.color.set( this.color );
+		} else {
+            console.info("    setting to light color");
+			this.material.color.copy( this.light.color );
+	    }
+        this.material.needsUpdate = true;
+    }
+}
+
 class SceneNode {
     constructor(object, folder, on_update) {
         this.object = object;
@@ -486,6 +597,13 @@ class SceneNode {
                 distance_controller.onChange(() => this.on_update());
                 this.controllers.push(distance_controller);
             }
+            if (this.object.helper_visible !== undefined) {
+                let helper_controller = this.folder.add(this.object, "helper_visible");
+                helper_controller.onChange(() => {
+                     this.object.helper.visible = this.object.helper_visible;
+                    this.on_update();});
+                this.controllers.push(helper_controller);
+            }
         }
         if (this.object.isCamera) {
             let controller = this.folder.add(this.object, "zoom").min(0).step(0.1);
@@ -549,6 +667,9 @@ class SceneNode {
             this.object[property] = new dat.color.Color(value.map((x) => x * 255));
         } else {
             this.object[property] = value;
+        }
+        if (this.object.onSetProperty !== undefined) {
+            this.object.onSetProperty();
         }
         if (this.object.isBackground) {
             // If we've set values on the Background, we need to fire its on_update()).
@@ -1020,7 +1141,6 @@ class Viewer {
 
     create_default_spot_light() {
         var spot_light = new THREE.SpotLight(0xffffff, 0.8);
-        spot_light.position.set(1.5, 1.5, 2);
         // Make light not cast shadows by default (effectively
         // disabling them, as there are no shadow-casting light
         // sources in the default configuration). This is toggleable
@@ -1031,37 +1151,58 @@ class Viewer {
         spot_light.shadow.camera.near = 0.5;     // default 0.5
         spot_light.shadow.camera.far = 50.;      // default 500
         spot_light.shadow.bias = -0.001;
+        // Provide the optional light visualizer. By parenting it to the light,
+        // it will move with the light. We make the light directly accessible
+        // through the light, as well as adding a visibility trigger for
+        // controls.
+        spot_light.helper = new MySpotLightHelper(spot_light);
+        spot_light.helper_visible = spot_light.helper.visible = false;
+        spot_light.add(spot_light.helper);
+
+        // When a spot light property is set, we may need to update the
+        // helper.
+        spot_light.onSetProperty = () => {
+            spot_light.helper.update();
+        }
+
         return spot_light;
+    }
+
+    create_default_point_light() {
+        var light = new THREE.PointLight(0xffffff, 0.4);
+        light.castShadow = false;
+        light.distance = 10.0;
+        light.shadow.mapSize.width = 1024;  // default 512
+        light.shadow.mapSize.height = 1024; // default 512
+        light.shadow.camera.near = 0.5;     // default 0.5
+        light.shadow.camera.far = 10.;      // default 500
+        light.shadow.bias = -0.001;      // Default 0
+        // Provide the optional light visualizer. By parenting it to the light,
+        // it will move with the light. We make the light directly accessible
+        // through the light, as well as adding a visibility trigger for
+        // controls.
+        light.helper = new MyPointLightHelper(light, 0.1);
+        light.helper_visible = light.helper.visible = false;
+        light.add(light.helper);
+
+        return light;
     }
 
     add_default_scene_elements() {
         var spot_light = this.create_default_spot_light();
+        spot_light.position.set(1.5, 1.5, 2);
         this.set_object(["Lights", "SpotLight"], spot_light);
         // By default, the spot light is turned off, since
         // it's primarily used for casting detailed shadows
         this.set_property(["Lights", "SpotLight"], "visible", false);
 
-        var point_light_px = new THREE.PointLight(0xffffff, 0.4);
+        var point_light_px = this.create_default_point_light();
         point_light_px.position.set(1.5, 1.5, 2);
-        point_light_px.castShadow = false;
-        point_light_px.distance = 10.0;
-        point_light_px.shadow.mapSize.width = 1024;  // default 512
-        point_light_px.shadow.mapSize.height = 1024; // default 512
-        point_light_px.shadow.camera.near = 0.5;     // default 0.5
-        point_light_px.shadow.camera.far = 10.;      // default 500
-        point_light_px.shadow.bias = -0.001;      // Default 0
-        this.set_object(["Lights", "PointLightNegativeX"], point_light_px);
+        this.set_object(["Lights", "PointLightPositiveX"], point_light_px);
 
-        var point_light_nx = new THREE.PointLight(0xffffff, 0.4);
+        var point_light_nx = this.create_default_point_light();
         point_light_nx.position.set(-1.5, -1.5, 2);
-        point_light_nx.castShadow = false;
-        point_light_nx.distance = 10.0;
-        point_light_nx.shadow.mapSize.width = 1024;  // default 512
-        point_light_nx.shadow.mapSize.height = 1024; // default 512
-        point_light_nx.shadow.camera.near = 0.5;     // default 0.5
-        point_light_nx.shadow.camera.far = 10.;      // default 500
-        point_light_nx.shadow.bias = -0.001;      // Default 0
-        this.set_object(["Lights", "PointLightPositiveX"], point_light_nx);
+        this.set_object(["Lights", "PointLightNegativeX"], point_light_nx);
 
         var ambient_light = new THREE.AmbientLight(0xffffff, 0.3);
         ambient_light.intensity = 0.6;

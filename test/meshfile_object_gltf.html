@@ -46,9 +46,9 @@ let gltf_contents = `
 			"mesh":1,
 			"name":"Plane",
 			"scale":[
-				2.1528782844543457,
-				2.1528782844543457,
-				2.1528782844543457
+				4.1528782844543457,
+				4.1528782844543457,
+				4.1528782844543457
 			]
 		},
 		{
@@ -296,20 +296,34 @@ let gltf_contents = `
                 }
             }
         });
-		// Enable shadows so we can see the meshes in the gltf cast and receive
-		// shadows.
-		viewer.handle_command({
-			type: "set_property",
-			path: "/Lights/PointLightNegativeX/<object>",
-			property: "castShadow",
-			value: true
-		});
-		viewer.handle_command({
-			type: "set_property",
-			path: "/Lights/PointLightPositiveX/<object>",
-			property: "castShadow",
-			value: true
-		});
+		// Things that work
+		viewer.set_property(["Lights", "PointLightNegativeX", "<object>"], "castShadow", true);
+		viewer.set_property(["Lights", "PointLightNegativeX", "<object>"], "intensity", 2.0);
+		viewer.set_property(["Lights", "PointLightNegativeX", "<object>"], "decay", 1.0);
+		viewer.set_property(["Lights", "PointLightNegativeX", "<object>"], "distance", 20.0);
+		viewer.set_property(["Lights", "PointLightNegativeX", "<object>"], "position", [2, 2, 2]);
+		// viewer.set_property(["Lights", "PointLightNegativeX", "<object>", "shadow", "mapSize"], "width", 64);
+		// viewer.set_property(["Lights", "PointLightNegativeX", "<object>", "shadow", "mapSize"], "height", 64);
+
+		// Things that don't work.
+		viewer.set_property(["Lights", "PointLightNegativeX", "<object>"], "color", [0, 0, 1]);
+
+			
+		// Getting things out of the way
+		viewer.set_property(["Lights", "PointLightNegativeX"], "visible", false);
+		viewer.set_property(["Lights", "PointLightPositiveX"], "visible", false);
+
+		// Move the other lights out of the way.
+        // viewer.delete_path(["Lights", "PointLightPositiveX"]);
+        // viewer.delete_path(["Lights", "SpotLight"]);
+		viewer.set_property(["Lights", "SpotLight"], "visible", true);
+		viewer.set_property(["Lights", "SpotLight", "<object>"], "position", [.4, .4, 3.4]);
+		viewer.set_property(["Lights", "SpotLight", "<object>"], "distance", 25);
+		viewer.set_property(["Lights", "SpotLight", "<object>"], "castShadow", true);
+		viewer.set_property(["Lights", "SpotLight", "<object>"], "angle", 0.8);
+        viewer.delete_path(["Lights", "AmbientLight"]);
+        viewer.delete_path(["Lights", "FillLight"]);
+
 		// Using ["Background"] will also work for legacy reasons, but it will
 		// lead to warnings generated in the browser's console.
 		viewer.set_property(["Background"], "top_color", [1, 0.25, 0.25]);
