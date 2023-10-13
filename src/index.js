@@ -6,6 +6,7 @@ import {OBJLoader2, MtlObjBridge} from 'wwobjloader2'
 import {ColladaLoader} from 'three/examples/jsm/loaders/ColladaLoader.js';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {MTLLoader} from 'three/examples/jsm/loaders/MTLLoader.js';
+import {RGBELoader} from 'three/examples/jsm/loaders/RGBELoader.js';
 import {STLLoader} from 'three/examples/jsm/loaders/STLLoader.js';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js';
 import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
@@ -969,18 +970,39 @@ function env_texture(top_color, bottom_color, is_perspective) {
 }
 
 function load_env_texture(path, background, scene, is_visible, is_perspective) {
-    // let has_error = false;
-    let texture = new THREE.TextureLoader().load( path, undefined, undefined, () => {
-        // onError; if, ultimately, there is a problem in loading this map, we
-        // need to revert the environment map to being undefined.
-        console.error(
-            "Failure to load the requested environment map; reverting to none.",
-            background.environment_map);
-        background.environment_map = null;
-        background.update(scene, is_visible, is_perspective);
-     });
+    var texture = null;
+    texture = new RGBELoader()
+        .load(path,
+              (texture) => {   // onLoad
+                // Look at this for further steps in using the texture.
+                // https://stackoverflow.com/questions/66579742/three-js-rgbe-loader-load-hdr-with-url
+                // Are these extra steps necessary?
+                // No. They're not:
+                // https://discourse.threejs.org/t/gltfloader-and-rgbeloader-adding-hdr-texture-to-enviroment/36086/3
+                console.info("RGBE loaded texture:", texture);
+              },
+              undefined,      // onProgress
+              (error) => {    // onError
+                  texture = new THREE.TextureLoader()
+                      .load(path,
+                            (texture) => {
+                                console.info("Console loader loaded texture", texture);
+                                texture.colorSpace = THREE.SRGBColorSpace;},
+                             undefined,
+                             (error) => {
+                                // If, ultimately, there is a problem in loading
+                                // this map, we need to revert the environment
+                                // map to being undefined.
+                                console.error(
+                                    "Failure to load the requested environment " +
+                                    "map; reverting to none.",
+                                    background.environment_map);
+                                background.environment_map = null;
+                                background.update(scene, is_visible, is_perspective);
+                             })
+              }
+        );
     if (texture != null) {
-        texture.colorSpace = THREE.SRGBColorSpace;
         texture.mapping = THREE.EquirectangularReflectionMapping;
     }
     return texture;
