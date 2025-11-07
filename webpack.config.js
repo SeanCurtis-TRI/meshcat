@@ -7,7 +7,7 @@ module.exports = [{
         libraryTarget: 'umd'
     },
     mode: "development",
-    devtool: "eval-cheap-source-map"
+    devtool: "eval-cheap-source-map",
 }, {
     entry: './src/index.js',
     output: {
@@ -16,6 +16,14 @@ module.exports = [{
         libraryTarget: 'umd'
     },
     mode: "production",
+    optimization: {
+      // Disable minimization entirely
+      minimize: false,
+
+      // Ensure named modules and chunks are used for better readability in the bundle (optional, often default in 'development')
+      // namedModules: true,
+      // namedChunks: true,
+    },
     module: {
       rules: [
         {
