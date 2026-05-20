@@ -298,6 +298,27 @@ class ExtensibleObjectLoader extends THREE.ObjectLoader {
                              json, shapes);
     }
 
+    // THREE.js's parseImages (sync) creates a brand-new LoadingManager that has
+    // no URLModifier, so any modifier registered on DefaultLoadingManager (or
+    // this.manager) is never consulted.  Pre-resolve each image URL here so that
+    // data-URL lookups (e.g. from an embedded-asset dictionary) take effect
+    // before the internal ImageLoader sees the URL.
+    parseImages(json, onLoad) {
+        if (json !== undefined) {
+            json = json.map(image => {
+                const resolve = url => (typeof url === 'string')
+                    ? this.manager.resolveURL(url)
+                    : url;
+                if (Array.isArray(image.url)) {
+                    return Object.assign({}, image, { url: image.url.map(resolve) });
+                } else {
+                    return Object.assign({}, image, { url: resolve(image.url) });
+                }
+            });
+        }
+        return super.parseImages(json, onLoad);
+    }
+
     parseObject(json, geometries, materials) {
         if (json.type == "Line2") {
             // Handle Line2 (fat lines with configurable width)
