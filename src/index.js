@@ -747,86 +747,81 @@ class SceneNode {
     }
 
     set_property(property, value, target_path) {
+        // Crawl properties should be specified on the _container_ node.
+        // However, the implementation must place properties on the _renderable_
+        // node (.../<object>); we'll retarget the property if necessary.
+        if ((property === "crawl_axis" || property === "crawl_displacement") &&
+                (target_path[target_path.length - 1] !== "<object>")) {
+            var new_target = this.find(["<object>"]);
+            var new_target_path = target_path.concat(["<object>"]);
+            new_target.set_property(property, value, new_target_path);
+            return;
+        }
         // Two-phase behavior:
         //   1) Apply to whatever portion of the subtree is already realized.
         //   2) If this is an auto-created <object> placeholder, queue this
         //      command so set_object() replay applies it to the real object.
-        let target = this;
         if (property === "position") {
-            target.object.position.set(value[0], value[1], value[2]);
+            this.object.position.set(value[0], value[1], value[2]);
         } else if (property === "quaternion") {
-            target.object.quaternion.set(value[0], value[1], value[2], value[3]);
+            this.object.quaternion.set(value[0], value[1], value[2], value[3]);
         } else if (property === "scale") {
-            target.object.scale.set(value[0], value[1], value[2]);
-        } else if (property === "crawl_axis" ||
-                   property === "crawl_displacement") {
-            // Crawl properties (axis and displacement) should be specified on
-            // the _container_ node. However, the implementation must place
-            // properties on the _renderable_ node (.../<object>). So, we'll
-            // retarget the property to the renderable node.
-            if (target_path.length > 0 &&
-                target_path[target_path.length - 1] !== "<object>") {
-                target_path = target_path.concat(["<object>"]);
-                target = target.find(["<object>"]);
-            }
-            if (property === "crawl_axis") {
-                // Note: For "crawl_axis", we should have already conditioned
-                // the target_path to be the renderable object (.../<object>).
-                const axis_C = new THREE.Vector3(value[0], value[1], value[2]);
-                // Prepares the subtree, propagating the axis expressed in the
-                // geometry's container frame to each mesh's local frame.
-                prepare_crawling_texture(target.object);
-                // The pose of the renderable R in its parent container frame C.
-                let X_CR = new THREE.Matrix4();
-                X_CR.copy(get_current_local_matrix(target.object));
-                let R_CR = new THREE.Matrix3().setFromMatrix4(X_CR);
-                // Note: crawl_axis is axis_C by definition.
-                set_crawl_axis_for_subtree(target.object, axis_C, R_CR);
-                target.on_update();
-            } else if (property === "crawl_displacement") {
-                target.visit_materials(target.object, (mat) => {
-                    mat.meshcat_crawl_displacement = value;
-                });
-                target.on_update();
-            }
+            this.object.scale.set(value[0], value[1], value[2]);
+        } else if (property === "crawl_axis") {
+            const axis_C = new THREE.Vector3(value[0], value[1], value[2]);
+            // Prepares the subtree, propagating the axis expressed in the
+            // geometry's container frame to each mesh's local frame.
+            prepare_crawling_texture(this.object);
+            // The pose of the renderable R in its parent container frame C.
+            let X_CR = new THREE.Matrix4();
+            X_CR.copy(get_current_local_matrix(this.object));
+            let R_CR = new THREE.Matrix3().setFromMatrix4(X_CR);
+            // Note: crawl_axis is axis_C by definition.
+            set_crawl_axis_for_subtree(this.object, axis_C, R_CR);
+            this.on_update();
+        } else if (property === "crawl_displacement") {
+            this.visit_materials(this.object, (mat) => {
+                mat.meshcat_crawl_displacement = value;
+            });
+            this.on_update();
         } else if (property === "color") {
-            var _target = target;
+            var _this = this;
             function setNodeColor(mat) {
                 mat.color.setRGB(value[0], value[1], value[2]);
-                _target.set_opacity(mat, value[3]);
+                _this.set_opacity(mat, value[3]);
             };
-            target.visit_materials(target.object, setNodeColor);
+            this.visit_materials(this.object, setNodeColor);
         } else if (property == "opacity") {
-            var _target = target;
+            var _this = this;
             function setNodeOpacity(mat) {
-                _target.set_opacity(mat, value);
+                _this.set_opacity(mat, value);
             };
-            target.visit_materials(target.object, setNodeOpacity);
+            this.visit_materials(this.object, setNodeOpacity);
         } else if (property == "modulated_opacity") {
-            var _target = target;
+            var _this = this;
             function setModulatedNodeOpacity(mat) {
                 // In case set_opacity() has never been called before, we'll
                 // call cache_original_opacity() to be safe.
-                _target.cache_original_opacity(mat);
-                _target.set_opacity(mat, mat.meshcat_base_opacity * value);
+                _this.cache_original_opacity(mat);
+                _this.set_opacity(mat, mat.meshcat_base_opacity * value);
             };
-            target.visit_materials(target.object, setModulatedNodeOpacity);
+            this.visit_materials(this.object, setModulatedNodeOpacity);
         } else if (property == "top_color" || property == "bottom_color") {
             // Top/bottom colors are stored as dat.color.Color
-            target.object[property] = new dat.color.Color(value.map((x) => x * 255));
+            this.object[property] = new dat.color.Color(value.map((x) => x * 255));
         } else {
-            target.set_property_chain(property, value, target_path);
+            this.set_property_chain(property, value, target_path);
         }
-        if (target.pending_properties !== null) {
-            target.pending_properties[property] = {value, target_path};
+        if (this.pending_properties !== null) {
+            this.pending_properties[property] = {value, target_path};
         }
         // For non three.js objects, we need to explicitly call their
         // on_update() methods to trigger redraws.
-        if (target.object.isBackground || target.object.isRenderConfig) {
-            target.on_update();
+        if (this.object.isBackground || this.object.isRenderConfig) {
+            this.on_update();
         }
-        target.vis_controller.updateDisplay();
-        target.controllers.forEach(c => c.updateDisplay());
+        this.vis_controller.updateDisplay();
+        this.controllers.forEach(c => c.updateDisplay());
     }
 
     set_property_chain(property, value, target_path) {
